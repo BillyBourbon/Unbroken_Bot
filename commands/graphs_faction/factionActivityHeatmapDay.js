@@ -1,17 +1,8 @@
 const { SlashCommandBuilder } = require("discord.js");
 const path = require("path");
 const fs = require("fs");
-const { heatmapDayXHour } = require("../../graphHelpers/heatmap");
-const db = require("../../helpers/db/db");
-
-function dbAll(sql, params) {
-  return new Promise((resolve, reject) => {
-    db.all(sql, params, (err, rows) => {
-      if (err) reject(err);
-      else resolve(rows);
-    });
-  });
-}
+const { heatmapDayXHour } = require("../../helpers/graphs/heatmap");
+const { dbAll } = require("../../helpers/db/helpers");
 
 module.exports = {
   data: new SlashCommandBuilder()
