@@ -1,25 +1,25 @@
 const { SlashCommandBuilder } = require("discord.js");
+const { dbAll } = require("../../helpers/db/helpers");
+const { heatmapDayXHour } = require("../../helpers/graphs/heatmap");
 const path = require("path");
 const fs = require("fs");
-const { heatmapWeekXDay } = require("../../helpers/graphs/heatmap");
-const { dbAll } = require("../../helpers/db/helpers");
-const { getUsersPermissions } = require("../../helpers/permissions/handler.js");
+const { getUsersPermissions } = require("../../helpers/permissions/handler");
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName("fac_activity_heatmap_week")
-    .setDescription("Replies with a heatmap of weekly activity")
+    .setName("user_activity_heatmap")
+    .setDescription("Create a heatmap of user activity")
     .addIntegerOption((option) =>
       option
-        .setName("faction_id")
-        .setDescription("The Faction ID")
-        .setRequired(true),
+        .setName("user_id")
+        .setDescription("The User ID")
+        .setRequired(false),
     )
     .addIntegerOption((option) =>
       option
         .setName("days")
         .setDescription("The number of days to show")
-        .setRequired(true),
+        .setRequired(false),
     )
     .addBooleanOption((option) =>
       option
@@ -38,42 +38,38 @@ module.exports = {
 
     await interaction.editReply("Fetching data...");
 
-    const factionId = interaction.options.getInteger("faction_id");
-
-    if (!factionId) {
-      await interaction.editReply("No faction ID provided");
-      return;
-    }
+    const userId =
+      interaction.options.getInteger("user_id") || interaction.user.id;
 
     const userPermissions = await getUsersPermissions(interaction.user.id);
-    if (!userPermissions.hasFaction(factionId) && !userPermissions.hasAdmin()) {
+    if (!userPermissions.hasUser(userId) && !userPermissions.hasAdmin()) {
       await interaction.editReply(
-        `You do not have permission to view data for faction ${factionId}`,
+        `You do not have permission to view data for user ${userId}`,
       );
       return;
     }
 
-    const days = interaction.options.getInteger("days");
-
-    if (!days) {
-      await interaction.editReply("No number of days provided");
-      return;
-    }
+    const days = interaction.options.getInteger("days") || 7;
 
     const includeToday =
       interaction.options.getBoolean("include_today") || false;
     const includeIdle = interaction.options.getBoolean("include_idle") || false;
 
-    await interaction.deferReply({ ephemeral: false });
+    if (!userId) {
+      await interaction.editReply("No user ID provided");
+      return;
+    }
+    if (!days) {
+      await interaction.editReply("No number of days provided");
+      return;
+    }
 
-    await interaction.editReply("Fetching data...");
-
-    const queryWeekly = `
+    const queryDaily = `
       SELECT
-        m.faction_id,
-        m.faction_name,
-        strftime('%Y-W%W', ua.timestamp, 'unixepoch') AS week,
-        strftime('%w', ua.timestamp, 'unixepoch') AS weekday,  -- 0=Sun..6=Sat
+        m.user_id,
+        m.username,
+        strftime('%Y-%m-%d', ua.timestamp, 'unixepoch', 'utc') AS day,
+        strftime('%H', ua.timestamp, 'unixepoch', 'utc') AS hour_of_day,
         COUNT(*) AS active_minutes
       FROM user_activity ua
       JOIN members m ON m.user_id = ua.user_id
@@ -87,23 +83,23 @@ module.exports = {
           '%s',
           date('now', 'utc')
         )
-        AND m.faction_id = ?
+        AND m.user_id = ?
       GROUP BY
-        m.faction_id,
-        week,
-        weekday
+        m.user_id,
+        day,
+        hour_of_day
       ORDER BY
-        m.faction_id,
-        week,
-        weekday;
+        m.user_id,
+        day,
+        hour_of_day;
     `;
 
     try {
-      const rows = await dbAll(queryWeekly, [days, factionId]);
+      const rows = await dbAll(queryDaily, [days, userId]);
 
       if (!rows.length) {
         await interaction.editReply(
-          `No activity data found for faction ${factionId} over the last ${days} days.`,
+          `No activity data found for user ${userId} over the last ${days} days.`,
         );
         return;
       }
@@ -113,22 +109,22 @@ module.exports = {
       );
 
       const outputBase = path.resolve(
-        `./out/${factionId}_Activity_Heatmap_Week_Faction`,
+        `./out/${userId}_Activity_Heatmap_Day_User`,
       );
       const pngPath = `${outputBase}.png`;
 
       const dayCounts = {};
       rows.forEach((row) => {
-        dayCounts[row.week] = (dayCounts[row.week] || 0) + 1;
+        dayCounts[row.day] = (dayCounts[row.day] || 0) + 1;
       });
       const filteredRows = includeToday
         ? rows
-        : rows.filter((row) => dayCounts[row.week] >= 7);
+        : rows.filter((row) => dayCounts[row.day] >= 24);
 
-      await heatmapWeekXDay(filteredRows, outputBase, true);
+      await heatmapDayXHour(filteredRows, outputBase, true);
 
       await interaction.editReply({
-        content: `Weekly activity heatmap for faction ${factionId} over the last ${days} days ${includeToday ? "(including today)" : "(excluding today)"}${includeIdle ? " (including idle time)" : ""}`,
+        content: `Daily activity heatmap for user ${userId} over the last ${days} days ${includeToday ? "(including today)" : "(excluding today)"}${includeIdle ? " (including idle time)" : ""}`,
         files: [
           {
             attachment: fs.readFileSync(pngPath),

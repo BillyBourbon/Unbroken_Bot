@@ -3,6 +3,7 @@ const path = require("path");
 const fs = require("fs");
 const { heatmapDayXHour } = require("../../helpers/graphs/heatmap");
 const { dbAll } = require("../../helpers/db/helpers");
+const { getUsersPermissions } = require("../../helpers/permissions/handler");
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -38,20 +39,30 @@ module.exports = {
     await interaction.editReply("Fetching data...");
 
     const factionId = interaction.options.getInteger("faction_id");
-    const days = interaction.options.getInteger("days");
-
-    const includeToday =
-      interaction.options.getBoolean("include_today") || false;
-    const includeIdle = interaction.options.getBoolean("include_idle") || false;
 
     if (!factionId) {
       await interaction.editReply("No faction ID provided");
       return;
     }
+
+    const userPermissions = await getUsersPermissions(interaction.user.id);
+    if (!userPermissions.hasFaction(factionId) && !userPermissions.hasAdmin()) {
+      await interaction.editReply(
+        `You do not have permission to view data for faction ${factionId}`,
+      );
+      return;
+    }
+
+    const days = interaction.options.getInteger("days");
+
     if (!days) {
       await interaction.editReply("No number of days provided");
       return;
     }
+
+    const includeToday =
+      interaction.options.getBoolean("include_today") || false;
+    const includeIdle = interaction.options.getBoolean("include_idle") || false;
 
     const queryDaily = `
       SELECT
@@ -98,7 +109,7 @@ module.exports = {
       );
 
       const outputBase = path.resolve(
-        `./out/${factionId}_Activity_Heatmap_Day`,
+        `./out/${factionId}_Activity_Heatmap_Day_Faction`,
       );
       const pngPath = `${outputBase}.png`;
 

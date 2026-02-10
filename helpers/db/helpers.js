@@ -1,12 +1,11 @@
-const db = require("./db");
-
 /**
  * Performs a query on the database and returns all rows
+ * @param {*} db - The database object
  * @param {string} sql - The SQL query to execute
  * @param {*} params - The parameters to pass to the query
  * @returns
  */
-const dbAll = (sql, params) => {
+const dbAll = (db, sql, params) => {
   if (!sql) {
     throw new Error("No SQL query provided");
   }
